@@ -6,7 +6,7 @@ create or replace procedure instructor_offer(
   dept_name varchar,
   sem integer,
   y integer,
-  time varchar,
+  time_ varchar,
   ins_id varchar
 )
 language plpgsql
@@ -17,30 +17,29 @@ begin
   select count(*) into counter_ from course_catalogue as co where co.courseid=cid and co.instructor_id = ins_id;
   if counter_>0 then
     insert into courses_offered(courseid,year_,course_name,sem, cgpa_required,instructor_id,timing,depart_name)
-    values(cid,y,c_name,sem, cgpa_req,ins_id,time,dept_name);
-end; $$
+    values(cid,y,c_name,sem, cgpa_req,ins_id,time_,dept_name);
+end;$$
 
-Create or replace function report_generation(
-    s_id varchar
-)
-returns table(course_name varchar, course_id varchar, grade_on_course integer)
-language plpgsql
-as $$
-begin
-return
-    select
-        course_name,
-        course_id,
-        grade_on_course
-    From
-        takes
-    where
-        takes.status = 1 and  takes.student_id = s_id;
-end; $$
+-- create or replace function report_generation(s_id varchar)
+-- returns table(course_name varchar, course_id varchar, grade_on_course integer)
+-- language plpgsql
+-- as $$
+-- begin
+-- return
+--     select
+--         course_name,
+--         course_id,
+--         grade_on_course
+--     From
+--         takes
+--     where
+--         takes.status = 1 and  takes.student_id = s_id;
+-- -- 	commit;
+-- end; $$
 
 -- SELECT * FROM report_generation('s_id'); (to call this function)
--- chances of mistake here
 
+-- chances of mistake here
 create or replace procedure cg_calculation(
     student_id varchar,
     INOUT cg DEC(4,2))
@@ -57,7 +56,7 @@ begin
     CAST( numerator as DOUBLE);
     CAST(denominator as DOUBLE);
     cg := numerator/denominator
-end;
+end; $$
 
 create or replace procedure credit_limit(
     IN s_id varchar(30),
@@ -138,7 +137,7 @@ create or replace procedure slot_free(
     IN s_ integer,
     IN c_id varchar(30),
     IN y_ integer,
-    INOUT result smallint
+    INOUT result integer
 )
 as $$
 declare
@@ -419,15 +418,15 @@ end; $$
 
 
 create or replace procedure student_registration(
-	st_id varchar(30),
-	st_name varchar(30),
-	cID varchar(30),
-    ce_name varchar(40),
-	ir_name varchar(30),
-    ir_id varchar(30),
+	st_id varchar,
+	st_name varchar,
+	cID varchar,
+    ce_name varchar,
+	ir_name varchar,
+    ir_id varchar,
 	s_ integer,
 	yea integer,
-	dt_name varchar(5),
+	dt_name varchar
 )
 language plpgsql
 as $$
@@ -444,12 +443,7 @@ a3 integer;
 a4 integer;
 a5 integer;
 
-y integer,
-s integer,
-sid varchar,
-sn varchar,
-ci varchar,
-dn varchar,
+
 gc integer,
 cc integer,
 t integer
@@ -477,7 +471,7 @@ begin
     execute s4 using st_id,credit_lim into credit_lim;
 
     select sum (credit_of_course) into current_sem_credit from (select takes.credit_of_course from takes where takes.student_id = student_id 
-        and takes.sem =sem  and takes.status = 1 and takes.year_=year_) as temp1 (credit_of_course);
+        and takes.sem =s_  and takes.status = 0 and takes.year_=yea) as temp1 (credit_of_course);
     if current_sem_credit <= credit_lim then
         a4 = 1;
     else
@@ -486,35 +480,26 @@ begin
 
     cg = 0;
     s5 = 'call cg_calculation($1,$2)';
-    execute s5 using student_id,cg into cg;
-    select cgpa_required into req_cg from courses_offered as co where co.courseid = courseid and co.instructor_id = instructor_id;
+    execute s5 using st_id,cg into cg;
+    select cgpa_required into req_cg from courses_offered as co where co.courseid = cid and co.instructor_id = ir_id;
 
     if req_cg <= cg then
         a5 = 1;
     else
         a5 = 0; 
     end if
-
+    
     if (a1 + a2 + a3 + a4 + a5) = 5 then
-        -- glti hai idhr
-        -- insert into takes(student_id,student_name,course_id,grade_on_course,credit_of_course,depart_name,year_,timing,sem,status)
-        -- values (student_id,student_name,course_id,grade_on_course,credit_of_course,depart_name,year_,timing,sem,0);
-        sid = student_id;
-        sn = student_name;
-        ci = courseid;
-        dn = depart_name;
-        y = year;
-        s = sem;
-        select grade_on_course,credit_of_course,timing into gc,cc,t from courses_offered as co where co.courseid = ci and co.instructor_id = instructor_id ;
-        insert into takes(student_id,student_name,course_id,grade_on_course,credit_of_course,depart_name,year_,timing,sem,status)
-        values (sid,sn,ci,gc,cc,dn,y,t,s,0);
+        select grade_on_course,credit_of_course,timing into gc,cc,t 
+        from courses_offered as co 
+        where co.courseid = cid and co.instructor_id = ir_id;;
+        insert into takes(student_id,student_name,course_id,
+        grade_on_course,credit_of_course,depart_name,year_,
+        timing,sem,status)
+        values (st_id,st_name,cid,gc,cc,dt_name,yea,t,s_,0);
     ELSE
-        sf = 0;
-        sb = 0;
-        sda = 0;
         s6 = 'call generate_ticket($1,$2,$3,$4,$5,$6,$7)';
-        -- //glti hai  idhr
-        execute s6 using student_id,courseID,instructor_id,course_name,sf,sb,sda into sf,sb,sda;
+        execute s6 using st_id,st_name,s_,yea,dt_name,cID,ir_id,ce_name,0,0,0;
     end if
  
 end; $$
