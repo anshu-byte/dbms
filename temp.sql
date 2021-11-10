@@ -1,3 +1,29 @@
+create or replace procedure fill_instructor(
+    i_id varchar,
+    na varchar
+)
+language plpgsql
+as $$
+begin
+  insert into  instructor(instructor_id,name_)
+  values (i_id,na);
+end; $$;
+
+
+create or replace procedure fill_batch_advisors(
+    i_id varchar,
+    na varchar,
+    d_name varchar
+)
+language plpgsql
+as $$
+begin
+  insert into  batch_advisor(i_id,na,d_name)
+  values (i_id,na);
+end; $$;
+
+
+
 create or replace procedure fill_course_catalogue(
     c_ID varchar, 
     c_name varchar,
@@ -55,7 +81,8 @@ create or replace procedure instructor_offer(
   dept_name varchar,
   sem_ integer,
   y integer,
-  ins_id varchar
+  ins_id varchar,
+  sec integer
 )
 language plpgsql
 as $$
@@ -66,8 +93,8 @@ begin
   select count(*) into counter_ from course_catalogue as co where co.course_id=cid;
   select co.credit_of_course into coc from course_catalogue as co where co.course_id=cid;
   if counter_>0 then
-    insert into courses_offered(course_id,credit_of_course,year_,course_name,sem, cgpa_required,instructor_id,depart_name)
-    values(cid,coc,y,c_name,sem_, cgpa_req,ins_id,dept_name);
+    insert into courses_offered(course_id,credit_of_course,year_,course_name,sem, cgpa_required,instructor_id,depart_name,section)
+    values(cid,coc,y,c_name,sem_, cgpa_req,ins_id,dept_name,sec);
    end if;
 end; $$;
 
@@ -250,6 +277,7 @@ dn varchar;
 ins_id varchar;
 cc integer;
 t varchar;
+sec integer;
 begin
    
     update ticket
@@ -257,10 +285,10 @@ begin
     where id = t_id;
 
     -- // student registered for the course
-    select year_, sem,student_id,student_name,course_id,depart_name,instructor_id into y,s,sid,sn,ci,dn,ins_id from ticket where ticket.status_dean_academics = 2;
-    select co.credit_of_course, co.timing into cc,t from courses_offered as co where co.course_id = ci and co.instructor_id = ins_id ;
-    insert into takes(student_id,student_name,course_id,grade_on_course,credit_of_course,depart_name,year_,timing,sem,status)
-    values (sid,sn,ci,0,cc,dn,y,t,s,0);
+    select year_, sem,student_id,student_name,course_id,depart_name,instructor_id,section into y,s,sid,sn,ci,dn,ins_id,sec from ticket where ticket.status_dean_academics = 2;
+    select co.credit_of_course, co.timing into cc,t from courses_offered as co where co.course_id = ci and co.instructor_id = ins_id and co.section = sec;
+    insert into takes(student_id,student_name,course_id,grade_on_course,credit_of_course,depart_name,year_,timing,sem,status,section)
+    values (sid,sn,ci,0,cc,dn,y,t,s,0,sec);
 end; $$;
  
 create or replace procedure reject_ticket_dean(
@@ -323,6 +351,7 @@ create or replace procedure slot_free(
     IN c_id varchar,
     IN y_ integer,
     IN inst_id varchar,
+    sect integer,
     INOUT result integer
 )
 language plpgsql
@@ -332,9 +361,9 @@ time_ varchar;
 
 number_of_clashes integer;
 begin
-select tt.timing into time_ from time_table as tt where tt.course_ID = c_id and tt.instructor_id = inst_id;
+-- select tt.timing into time_ from time_table as tt where tt.course_ID = c_id and tt.instructor_id = inst_id;
 select count (*) into number_of_clashes
-from takes as t where t.student_id = s_id and t.year_ = y_ and t.timing = time_ and t.sem = s_;
+from takes as t where t.student_id = s_id and t.year_ = y_ and t.sem = s_ and t.section = sect;
 if number_of_clashes = 0 then
     result = 1;
 else 
@@ -358,9 +387,13 @@ begin
     
     if denominator = 0 then
         cg = 10.00;
+    elsif numerator = 0 then
+        cg = 10.00;
     else
         cg = round(numerator /denominator,2);
     end if;
+    raise notice 'Value: cg %', cg;
+
 end; $$;
 
 create or replace procedure credit_limit(
@@ -407,7 +440,7 @@ begin
 end; $$;
 
 
-CREATE OR REPLACE PROCEDURE GRADE_ENTRY(C_ID varchar, I_ID varchar, Y_ integer, S_ integer) LANGUAGE PLPGSQL AS $$
+CREATE OR REPLACE PROCEDURE GRADE_ENTRY(C_ID varchar, I_ID varchar, Y_ integer, S_ integer, sec_ integer) LANGUAGE PLPGSQL AS $$
 begin
     create table temp_table(
     student_id varchar not null,
@@ -418,17 +451,18 @@ begin
     year_ integer not null,
     sem integer not null,
     status integer not null,
-    primary key(student_id));
-    COPY temp_table(student_id,student_name,course_id,grade_on_course,instructor_id,year_,sem,status)
+    section integer not null,
+    primary key(student_id,course_id,sem,section));
+    COPY temp_table(student_id,student_name,course_id,grade_on_course,instructor_id,year_,sem,status,section)
     FROM 'C:\Users\anshu\Desktop\Project\grade_sheet.csv'
     DELIMITER ','  CSV HEADER ;
     update takes 
     set grade_on_course= ( select grade_on_course from temp_table 
        where year_ = y_ and sem  = s_ and course_id = c_id and instructor_id = i_id and
-            status = 1),
+            status = 1 and section = sec_),
         status = (select tet.status from temp_table as tet 
           where year_ = y_ and sem  = s_ and course_id = c_id and instructor_id = i_id 
-           and status = 1)
+           and status = 1 and section = sec_)
     where year_ = y_ and sem  = s_ and course_id = c_id and 
            status = 0 and instructor_id = i_id;
     drop table temp_table;
@@ -447,13 +481,14 @@ create or replace procedure generate_ticket(
     c_name varchar,
     status_faculty integer,
     status_batch_advisor integer,
-    status_dean_academics integer
+    status_dean_academics integer,
+    section_ integer
 )
 language plpgsql
 as $$
 begin
-    insert into ticket(student_id,student_name,sem,year_,depart_name,course_id,instructor_id,course_name,status_faculty,status_batch_advisor,status_dean_academics)
-    values (s_id,s_name,s,y,d_name,c_id,i_id,c_name,0,0,0);
+    insert into ticket(student_id,student_name,sem,year_,depart_name,course_id,instructor_id,course_name,status_faculty,status_batch_advisor,status_dean_academics,section)
+    values (s_id,s_name,s,y,d_name,c_id,i_id,c_name,0,0,0,section_);
 end; $$;
 
 -- raise notice 'Value: %', value;
@@ -466,7 +501,8 @@ create or replace procedure student_registration(
     ir_id varchar,
 	s_ integer,
 	yea integer,
-	dt_name varchar
+	dt_name varchar,
+    sect integer
 )
 language plpgsql
 as $$
@@ -491,8 +527,8 @@ current_sem_credit integer;
 begin
 
     a1=0;
-    s1 = 'call slot_free($1,$2,$3,$4,$5,$6)';
-    execute s1 using st_id,s_,cID,yea,ir_id,a1 into a1;
+    s1 = 'call slot_free($1,$2,$3,$4,$5,$6,$7)';
+    execute s1 using st_id,s_,cID,yea,ir_id,sect,a1 into a1;
     raise notice 'Value: a1 %', a1;
     a2 = 0;
     s2 = 'call pre_requisite_check($1,$2,$3)';
@@ -503,7 +539,7 @@ begin
     s3 = 'call student_department_allowed($1,$2,$3,$4)';
     execute s3 using cid,st_id,dt_name,a3 into a3;
     raise notice 'Value: a3 %', a3;
-
+    a3 =1;
     credit_lim = 0.00;
     s4 = 'call credit_limit($1,$2,$3,$4)';
     execute s4 using st_id,s_,yea,credit_lim into credit_lim;
@@ -519,9 +555,10 @@ begin
 
     cg = 0;
     s5 = 'call cg_calculation($1,$2)';
-    execute s5 using st_id,cg into cg;
-    select cgpa_required into req_cg from courses_offered as co where co.course_id = cid and co.instructor_id = ir_id;
 
+    execute s5 using st_id,cg into cg;
+    select co.cgpa_required into req_cg from courses_offered as co where co.course_id = cid and co.instructor_id = ir_id and co.section = sect;
+    raise notice 'Value: req_cg %', req_cg;
     if req_cg <= cg then
         a5 = 1;
     else
@@ -531,17 +568,18 @@ begin
     raise notice 'Value: a5 %', a5;
 
     if (a1 + a2 + a3 + a4 + a5) = 5 then
+    -- if a4 =1 then
         select co.credit_of_course into cc
         from courses_offered as co 
-        where co.course_id = cid and co.instructor_id = ir_id;
+        where co.course_id = cid and co.instructor_id = ir_id and co.section = sect;
 
         select tt.timing  into tim  from time_table as tt where tt.course_ID = cid and tt.instructor_id = ir_id;
 
         insert into takes(student_id,student_name,course_id,
-        grade_on_course,credit_of_course,depart_name,year_,timing,sem,status,instructor_id)
-            values (st_id,st_name,cid,0,cc,dt_name,yea,tim,s_,0,ir_id);
+        grade_on_course,credit_of_course,depart_name,year_,timing,sem,status,instructor_id,section)
+            values (st_id,st_name,cid,0,cc,dt_name,yea,tim,s_,0,ir_id,sect);
     ELSE
-        s6 = 'call generate_ticket($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)';
-        execute s6 using st_id,st_name,s_,yea,dt_name,cID,ir_id,ce_name,0,0,0;
+        s6 = 'call generate_ticket($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)';
+        execute s6 using st_id,st_name,s_,yea,dt_name,cID,ir_id,ce_name,0,0,0,sect;
     end if; 
 end; $$;
