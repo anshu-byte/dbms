@@ -1,2 +1,2 @@
-student_id,student_name,course_id,grade_on_course,instructor_id,year_,sem,status
-2019csb1074,Anshu,cs201,10,puneetx123,2,3,1
+student_id,student_name,course_id,grade_on_course,instructor_id,year_,sem,status,section
+2019csb1074,Anshu,cs201,10,sodhix123,2,3,1,1

@@ -48,7 +48,6 @@ create table courses_offered(
 -- primary key st_id and c_id and sem
 drop table if exists takes;
 create table takes(
-    --id serial,
     student_id varchar not null,
     student_name varchar not null,
     course_id varchar not null,

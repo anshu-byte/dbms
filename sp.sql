@@ -279,16 +279,15 @@ cc integer;
 t varchar;
 sec integer;
 begin
-   
     update ticket
     set status_dean_academics = 2
     where id = t_id;
-
     -- // student registered for the course
     select year_, sem,student_id,student_name,course_id,depart_name,instructor_id,section into y,s,sid,sn,ci,dn,ins_id,sec from ticket where ticket.status_dean_academics = 2;
-    select co.credit_of_course, co.timing into cc,t from courses_offered as co where co.course_id = ci and co.instructor_id = ins_id and co.section = sec;
-    insert into takes(student_id,student_name,course_id,grade_on_course,credit_of_course,depart_name,year_,timing,sem,status,section)
-    values (sid,sn,ci,0,cc,dn,y,t,s,0,sec);
+    select co.credit_of_course into cc from courses_offered as co where co.course_id = ci and co.instructor_id = ins_id and co.section = sec;
+    select co.timing into t from time_table as co where co.course_id = ci and co.instructor_id = ins_id;
+    insert into takes(student_id,student_name,course_id,grade_on_course,credit_of_course,depart_name,year_,timing,sem,instructor_id,status,section)
+    values (sid,sn,ci,0,cc,dn,y,t,s,ins_id,0,sec);
 end; $$;
  
 create or replace procedure reject_ticket_dean(
@@ -440,33 +439,57 @@ begin
 end; $$;
 
 
-CREATE OR REPLACE PROCEDURE GRADE_ENTRY(C_ID varchar, I_ID varchar, Y_ integer, S_ integer, sec_ integer) LANGUAGE PLPGSQL AS $$
-begin
-    create table temp_table(
-    student_id varchar not null,
-    student_name varchar not null,
-    course_id varchar not null,
-    grade_on_course integer not null,
-    instructor_id  varchar not null,
-    year_ integer not null,
-    sem integer not null,
-    status integer not null,
-    section integer not null,
-    primary key(student_id,course_id,sem,section));
+CREATE OR REPLACE PROCEDURE GRADE_ENTRY(C_ID varchar, I_ID varchar, Y_ integer, S_ integer, sec_ integer) 
+LANGUAGE PLPGSQL 
+AS $$
+
+BEGIN
+    -- Create a temporary table to hold the CSV data
+    CREATE TEMPORARY TABLE temp_table (
+        student_id varchar NOT NULL,
+        student_name varchar NOT NULL,
+        course_id varchar NOT NULL,
+        grade_on_course integer NOT NULL,
+        instructor_id varchar NOT NULL,
+        year_ integer NOT NULL,
+        sem integer NOT NULL,
+        status integer NOT NULL,
+        section integer NOT NULL,
+        PRIMARY KEY(student_id,course_id,sem,section)
+    );
+    
+    -- Load the CSV data into the temporary table
     COPY temp_table(student_id,student_name,course_id,grade_on_course,instructor_id,year_,sem,status,section)
-    FROM 'C:\Users\anshu\Desktop\Project\grade_sheet.csv'
+    FROM '/Users/anshu/Documents/Projects/dbms/grade_sheet.csv'
     DELIMITER ','  CSV HEADER ;
-    update takes 
-    set grade_on_course= ( select grade_on_course from temp_table 
-       where year_ = y_ and sem  = s_ and course_id = c_id and instructor_id = i_id and
-            status = 1 and section = sec_),
-        status = (select tet.status from temp_table as tet 
-          where year_ = y_ and sem  = s_ and course_id = c_id and instructor_id = i_id 
-           and status = 1 and section = sec_)
-    where year_ = y_ and sem  = s_ and course_id = c_id and 
-           status = 0 and instructor_id = i_id;
-    drop table temp_table;
-end; $$;
+    
+    -- Update the takes table
+    UPDATE takes
+    SET 
+        grade_on_course = temp_table.grade_on_course,
+        status = temp_table.status
+    FROM temp_table
+    WHERE 
+        takes.student_id = temp_table.student_id AND
+        takes.course_id = temp_table.course_id AND
+        takes.sem = temp_table.sem AND
+        takes.section = temp_table.section AND
+        takes.year_ = temp_table.year_ AND
+        takes.instructor_id = temp_table.instructor_id AND
+        takes.status = 0 AND
+        temp_table.course_id = C_ID AND
+        temp_table.instructor_id = I_ID AND
+        temp_table.year_ = Y_ AND
+        temp_table.sem = S_ AND
+        temp_table.section = sec_ AND
+        temp_table.status = 1;
+    
+    -- Drop the temporary table
+    DROP TABLE temp_table;
+
+END; 
+$$;
+
 
 
 
